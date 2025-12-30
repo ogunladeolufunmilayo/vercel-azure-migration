@@ -4,13 +4,14 @@ trigger:
       - main
   paths:
     include:
-      - infra/*
+      - infra/**
 
 pool:
   vmImage: ubuntu-latest
 
 variables:
   TF_WORKING_DIR: infra
+  TF_VERSION: "1.7.5"
 
 stages:
 - stage: Terraform
@@ -22,34 +23,25 @@ stages:
     - checkout: self
 
     - task: AzureCLI@2
-      displayName: Terraform init/plan/apply (OIDC)
+      displayName: Terraform init/plan/apply (SP Secret)
       inputs:
-        azureSubscription: azure-conn
+        azureSubscription: azure-conn-sp
         scriptType: bash
         scriptLocation: inlineScript
         addSpnToEnvironment: true
         inlineScript: |
           set -euo pipefail
 
-          # --- Force Terraform to use SPN OIDC auth (NOT Azure CLI auth) ---
-          export ARM_USE_OIDC=true
-          export ARM_CLIENT_ID="$servicePrincipalId"
-          export ARM_TENANT_ID="$tenantId"
-          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
-
-          # Azure DevOps WIF provides a federated token file. Terraform can use it.
-          if [ -n "${AZURE_FEDERATED_TOKEN_FILE:-}" ] && [ -f "$AZURE_FEDERATED_TOKEN_FILE" ]; then
-            export ARM_OIDC_TOKEN="$(cat "$AZURE_FEDERATED_TOKEN_FILE")"
-          else
-            echo "ERROR: AZURE_FEDERATED_TOKEN_FILE not found. Workload Identity token not available."
-            exit 1
-          fi
-
-          # --- Install terraform (keep yours or change version if you want) ---
-          echo "Installing Terraform 1.7.5..."
-          curl -sSL -o terraform.zip https://releases.hashicorp.com/terraform/1.7.5/terraform_1.7.5_linux_amd64.zip
+          echo "Installing Terraform ${TF_VERSION}..."
+          curl -sSL -o terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
           sudo unzip -o terraform.zip -d /usr/local/bin
           terraform -version
+
+          # Force Terraform to authenticate with the Service Principal SECRET
+          export ARM_CLIENT_ID="$servicePrincipalId"
+          export ARM_CLIENT_SECRET="$servicePrincipalKey"
+          export ARM_TENANT_ID="$tenantId"
+          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
           cd "$(TF_WORKING_DIR)"
 

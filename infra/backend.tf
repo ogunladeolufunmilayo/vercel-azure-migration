@@ -4,5 +4,6 @@ terraform {
     storage_account_name = "funmilayotfstate29073"
     container_name       = "tfstate"
     key                  = "vercel-azure-migration/terraform.tfstate"
+    use_oidc             = true
   }
 }

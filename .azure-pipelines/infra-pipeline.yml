@@ -10,7 +10,7 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  terraformVersion: "1.7.5"   # safe/stable
+  terraformVersion: "1.7.5"
   workingDirectory: "infra"
 
 stages:
@@ -23,11 +23,15 @@ stages:
     - checkout: self
 
     - task: AzureCLI@2
-      displayName: "Terraform init/plan/apply"
+      displayName: "Terraform init/plan/apply (OIDC/SPN auth)"
       inputs:
         azureSubscription: "azure-conn"
         scriptType: bash
         scriptLocation: inlineScript
+
+        # ⭐ KEY LINE: exposes SPN/WIF details to the script environment
+        addSpnToEnvironment: true
+
         inlineScript: |
           set -euo pipefail
 
@@ -37,6 +41,23 @@ stages:
           terraform -version
 
           cd "$(workingDirectory)"
+
+          # ---- Terraform auth: use Workload Identity (OIDC) or fallback to SP secret if present ----
+          export ARM_CLIENT_ID="${servicePrincipalId}"
+          export ARM_TENANT_ID="${tenantId}"
+          export ARM_SUBSCRIPTION_ID="${subscriptionId}"
+
+          if [[ -n "${AZURE_FEDERATED_TOKEN_FILE:-}" && -f "${AZURE_FEDERATED_TOKEN_FILE}" ]]; then
+            echo "Using OIDC federated token for Terraform auth..."
+            export ARM_USE_OIDC=true
+            export ARM_OIDC_TOKEN="$(cat "$AZURE_FEDERATED_TOKEN_FILE")"
+          elif [[ -n "${servicePrincipalKey:-}" ]]; then
+            echo "Using client secret for Terraform auth..."
+            export ARM_CLIENT_SECRET="${servicePrincipalKey}"
+          else
+            echo "ERROR: No federated token file and no client secret available."
+            exit 1
+          fi
 
           echo "Terraform init..."
           terraform init -input=false

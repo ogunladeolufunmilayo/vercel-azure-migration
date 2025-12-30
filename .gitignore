@@ -14,3 +14,8 @@ crash.*.log
 .env
 .env.*
 .DS_Store
+
+# Next.js / Vercel
+.next/
+.vercel/
+node_modules/

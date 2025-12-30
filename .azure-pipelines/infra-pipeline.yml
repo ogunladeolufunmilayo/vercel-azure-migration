@@ -7,51 +7,45 @@ trigger:
       - infra/*
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
 
 variables:
-  TF_VERSION: '1.6.6'
-  WORKING_DIR: 'infra'
+  terraformVersion: "1.7.5"   # safe/stable
+  workingDirectory: "infra"
 
 stages:
 - stage: Terraform
-  displayName: 'Terraform Infrastructure'
+  displayName: "Terraform Plan & Apply"
   jobs:
-  - job: Deploy
-    displayName: 'Plan and Apply Infrastructure'
+  - job: Apply
+    displayName: "Plan and Apply"
     steps:
-
     - checkout: self
 
-    - task: TerraformInstaller@1
+    - task: AzureCLI@2
+      displayName: "Terraform init/plan/apply"
       inputs:
-        terraformVersion: $(TF_VERSION)
+        azureSubscription: "azure-conn"
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          set -euo pipefail
 
-    - task: TerraformTaskV4@4
-      displayName: 'Terraform Init'
-      inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: $(WORKING_DIR)
-        backendServiceArm: 'azure-conn'
-        backendAzureRmResourceGroupName: 'terraform-state-rg'
-        backendAzureRmStorageAccountName: 'funmilayotfstate29073'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'infra.tfstate'
+          echo "Installing Terraform $(terraformVersion)..."
+          curl -sSL -o terraform.zip "https://releases.hashicorp.com/terraform/$(terraformVersion)/terraform_$(terraformVersion)_linux_amd64.zip"
+          sudo unzip -o terraform.zip -d /usr/local/bin
+          terraform -version
 
-    - task: TerraformTaskV4@4
-      displayName: 'Terraform Plan'
-      inputs:
-        provider: 'azurerm'
-        command: 'plan'
-        workingDirectory: $(WORKING_DIR)
-        environmentServiceNameAzureRM: 'azure-conn'
+          cd "$(workingDirectory)"
 
-    - task: TerraformTaskV4@4
-      displayName: 'Terraform Apply'
-      inputs:
-        provider: 'azurerm'
-        command: 'apply'
-        workingDirectory: $(WORKING_DIR)
-        environmentServiceNameAzureRM: 'azure-conn'
-        args: '-auto-approve'
+          echo "Terraform init..."
+          terraform init -input=false
+
+          echo "Terraform validate..."
+          terraform validate
+
+          echo "Terraform plan..."
+          terraform plan -out=tfplan -input=false
+
+          echo "Terraform apply..."
+          terraform apply -auto-approve -input=false tfplan

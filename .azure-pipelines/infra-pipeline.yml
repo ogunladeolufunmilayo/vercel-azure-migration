@@ -7,42 +7,42 @@ trigger:
       - infra/*
 
 pool:
-  vmImage: "ubuntu-latest"
+  vmImage: ubuntu-latest
 
 variables:
-  TF_WORKING_DIR: "infra"
-  TF_VERSION: "1.7.5"
+  TF_WORKING_DIR: infra
 
 stages:
-  - stage: Terraform
-    displayName: "Terraform Plan + Apply"
-    jobs:
-      - job: Deploy
-        displayName: "Deploy Infrastructure"
-        steps:
-          - checkout: self
+- stage: Terraform
+  displayName: Terraform Plan + Apply
+  jobs:
+  - job: Deploy
+    displayName: Deploy Infrastructure
+    steps:
+    - checkout: self
 
-          - task: AzureCLI@2
-  displayName: "Terraform init/plan/apply (SP SECRET)"
-  inputs:
-    azureSubscription: "azure-conn-sp"
-    scriptType: "bash"
-    scriptLocation: "inlineScript"
-    addSpnToEnvironment: true
-    inlineScript: |
-      set -euo pipefail
+    - task: AzureCLI@2
+      displayName: Terraform init/plan/apply (SP SECRET)
+      inputs:
+        azureSubscription: azure-conn-sp
+        scriptType: bash
+        scriptLocation: inlineScript
+        addSpnToEnvironment: true
+        inlineScript: |
+          set -euo pipefail
 
-      # SP SECRET auth (NO OIDC)
-      export ARM_CLIENT_ID="$servicePrincipalId"
-      export ARM_CLIENT_SECRET="$servicePrincipalKey"
-      export ARM_TENANT_ID="$tenantId"
-      export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+          echo "Authenticating Terraform with Service Principal"
 
-      # Prevent interactive prompt (create this pipeline variable as SECRET)
-      export TF_VAR_database_url="$(database_url)"
+          export ARM_CLIENT_ID="$servicePrincipalId"
+          export ARM_CLIENT_SECRET="$servicePrincipalKey"
+          export ARM_TENANT_ID="$tenantId"
+          export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
-      cd infra
-      terraform init -input=false
-      terraform validate
-      terraform plan -out=tfplan -input=false
-      terraform apply -auto-approve -input=false tfplan
+          export TF_VAR_database_url="$(database_url)"
+
+          cd infra
+
+          terraform init -input=false
+          terraform validate
+          terraform plan -out=tfplan -input=false
+          terraform apply -auto-approve -input=false tfplan

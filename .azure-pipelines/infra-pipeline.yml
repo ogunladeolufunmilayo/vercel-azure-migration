@@ -22,27 +22,34 @@ stages:
     - checkout: self
 
     - task: AzureCLI@2
-      displayName: Terraform init/plan/apply (SP SECRET)
+      displayName: "Terraform init/plan/apply (SP SECRET)"
       inputs:
-        azureSubscription: azure-conn-sp
-        scriptType: bash
-        scriptLocation: inlineScript
+        azureSubscription: "azure-conn-sp"
+        scriptType: "bash"
+        scriptLocation: "inlineScript"
         addSpnToEnvironment: true
         inlineScript: |
           set -euo pipefail
 
           echo "Authenticating Terraform with Service Principal"
-
           export ARM_CLIENT_ID="$servicePrincipalId"
           export ARM_CLIENT_SECRET="$servicePrincipalKey"
           export ARM_TENANT_ID="$tenantId"
           export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
-          export TF_VAR_database_url="$(database_url)"
+          echo "Installing Terraform ${TF_VERSION}..."
+          curl -sSL -o terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+          unzip -o terraform.zip
+          sudo mv terraform /usr/local/bin/terraform
+          terraform -version
 
-          cd infra
+          # Provide required TF var(s) without prompting
+          export TF_VAR_database_url="$DATABASE_URL"
 
+          cd "${TF_WORKING_DIR}"
           terraform init -input=false
           terraform validate
           terraform plan -out=tfplan -input=false
           terraform apply -auto-approve -input=false tfplan
+      env:
+        DATABASE_URL: $(database_url)

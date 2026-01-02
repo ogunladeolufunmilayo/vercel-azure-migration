@@ -23,28 +23,32 @@ stages:
           - checkout: self
 
           - task: AzureCLI@2
-            displayName: "Terraform init/plan/apply (SP Secret)"
+            displayName: "Terraform init/plan/apply (SP SECRET - v3)"
             inputs:
-              azureSubscription: "azure-conn"
+              azureSubscription: "azure-conn-sp"
               scriptType: "bash"
               scriptLocation: "inlineScript"
               addSpnToEnvironment: true
               inlineScript: |
                 set -euo pipefail
 
-                # Service Principal SECRET auth (no OIDC)
-                export ARM_CLIENT_ID="$servicePrincipalId"
-                export ARM_CLIENT_SECRET="$servicePrincipalKey"
-                export ARM_TENANT_ID="$tenantId"
-                export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
+# Service Principal SECRET auth (no OIDC)
+export ARM_USE_OIDC=false
+export ARM_CLIENT_ID="$servicePrincipalId"
+export ARM_CLIENT_SECRET="$servicePrincipalKey"
+export ARM_TENANT_ID="$tenantId"
+export ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
-                echo "Installing Terraform ${TF_VERSION}..."
-                curl -sSL -o terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
-                sudo unzip -o terraform.zip -d /usr/local/bin >/dev/null
-                terraform -version
+# Provide required TF var(s) so it doesn't prompt in pipeline
+export TF_VAR_database_url="$(database_url)"
 
-                cd "${TF_WORKING_DIR}"
-                terraform init
-                terraform validate
-                terraform plan -out=tfplan
-                terraform apply -auto-approve tfplan
+echo "Installing Terraform ${TF_VERSION}..."
+curl -sSL -o terraform.zip "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip"
+sudo unzip -o terraform.zip -d /usr/local/bin >/dev/null
+terraform -version
+
+cd "${TF_WORKING_DIR}"
+terraform init
+terraform validate
+terraform plan -out=tfplan
+terraform apply -auto-approve tfplan

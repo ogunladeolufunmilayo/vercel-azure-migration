@@ -95,7 +95,7 @@ stages:
           echo "Fetching secret URI from Key Vault..."
           SECRET_URI=$(az keyvault secret show \
             --vault-name "$(KEYVAULT_NAME)" \
-            --name "DATABASE-URL" \
+            --name "DATABASE_URL" \
             --query id -o tsv)
 
           echo "Setting App Setting DATABASE_URL as Key Vault reference..."

@@ -11,10 +11,16 @@ pool:
 
 variables:
   NODE_VERSION: "20.x"
+  TF_WORKING_DIR: "infra"
+
+  # Service connection (SP secret)
   AZURE_SUBSCRIPTION: "azure-conn-sp"
+
+  # Your actual resources
   RG_NAME: "rg-vercel-azure-migration"
-  APP_NAME: "vercel-azure-mig-web"
-  KEY_VAULT_NAME: "vercel-azure-mig-kv"
+  WEBAPP_NAME: "vercel-azure-mig-web"
+  KEYVAULT_NAME: "vercel-azure-mig-kv"
+
   ARTIFACT_NAME: "drop"
 
 stages:
@@ -27,68 +33,94 @@ stages:
     - checkout: self
 
     - task: NodeTool@0
+      displayName: "Use Node $(NODE_VERSION)"
       inputs:
         versionSpec: "$(NODE_VERSION)"
 
     - script: |
+        set -euo pipefail
         npm ci
       displayName: Install dependencies
 
     - script: |
+        set -euo pipefail
         npm run build
-      displayName: Build
+      displayName: Build app
 
+    # Package everything needed for App Service deployment
     - script: |
+        set -euo pipefail
         mkdir -p "$(Build.ArtifactStagingDirectory)"
         zip -r "$(Build.ArtifactStagingDirectory)/app.zip" . \
-          -x "**/.git/**" "**/node_modules/**" "**/.next/cache/**" "**/.vercel/**" "**/infra/**"
-      displayName: Package app
+          -x "**/.git/**" \
+             "**/infra/**" \
+             "**/.vercel/**" \
+             "**/node_modules/**" \
+             "**/.next/cache/**"
+      displayName: Create deployment zip
 
-    - task: PublishBuildArtifacts@1
+    # Publish as PIPELINE artifact (not legacy build artifact)
+    - task: PublishPipelineArtifact@1
+      displayName: Publish pipeline artifact
       inputs:
-        PathtoPublish: "$(Build.ArtifactStagingDirectory)/app.zip"
-        ArtifactName: "$(ARTIFACT_NAME)"
+        targetPath: "$(Build.ArtifactStagingDirectory)/app.zip"
+        artifact: "$(ARTIFACT_NAME)"
 
 - stage: Deploy
   displayName: Deploy
   dependsOn: Build
   jobs:
   - job: deploy
-    displayName: Deploy to App Service
+    displayName: Deploy to Azure App Service
     steps:
-    - download: current
-      artifact: "$(ARTIFACT_NAME)"
+    - checkout: none
 
+    # Download PIPELINE artifact
+    - task: DownloadPipelineArtifact@2
+      displayName: Download artifact
+      inputs:
+        artifact: "$(ARTIFACT_NAME)"
+        path: "$(Pipeline.Workspace)"
+
+    # Set DATABASE_URL using Key Vault reference
     - task: AzureCLI@2
-      displayName: Configure DATABASE_URL from Key Vault
+      displayName: Set DATABASE_URL via Key Vault reference
       inputs:
         azureSubscription: "$(AZURE_SUBSCRIPTION)"
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
+          set -euo pipefail
+
+          echo "Fetching secret URI from Key Vault..."
           SECRET_URI=$(az keyvault secret show \
-            --vault-name "$(KEY_VAULT_NAME)" \
+            --vault-name "$(KEYVAULT_NAME)" \
             --name "DATABASE-URL" \
             --query id -o tsv)
 
+          echo "Setting App Setting DATABASE_URL as Key Vault reference..."
           az webapp config appsettings set \
             --resource-group "$(RG_NAME)" \
-            --name "$(APP_NAME)" \
+            --name "$(WEBAPP_NAME)" \
             --settings DATABASE_URL="@Microsoft.KeyVault(SecretUri=$SECRET_URI)"
 
+          echo "Done."
+
+    # Deploy the zip to App Service (Linux)
     - task: AzureWebApp@1
-      displayName: Deploy app
+      displayName: Deploy to Web App
       inputs:
         azureSubscription: "$(AZURE_SUBSCRIPTION)"
         appType: webAppLinux
-        appName: "$(APP_NAME)"
-        package: "$(Pipeline.Workspace)/$(ARTIFACT_NAME)/app.zip"
+        appName: "$(WEBAPP_NAME)"
+        package: "$(Pipeline.Workspace)/app.zip"
 
     - task: AzureCLI@2
-      displayName: Restart App Service
+      displayName: Restart Web App
       inputs:
         azureSubscription: "$(AZURE_SUBSCRIPTION)"
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
-          az webapp restart -g "$(RG_NAME)" -n "$(APP_NAME)"
+          set -euo pipefail
+          az webapp restart -g "$(RG_NAME)" -n "$(WEBAPP_NAME)"
